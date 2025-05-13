@@ -47,6 +47,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.content.Context
+import java.util.Calendar
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+
+
 
 
 class MainActivity : ComponentActivity() {
@@ -123,6 +128,35 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.Profile.route) {
                             ProfileScreen(navController = navController)
                         }
+                        composable(
+                            route = "selectFloor/{date}/{start}/{end}",
+                            arguments = listOf(
+                                navArgument("date") { type = NavType.StringType },
+                                navArgument("start") { type = NavType.StringType },
+                                navArgument("end") { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val date = backStackEntry.arguments?.getString("date") ?: ""
+                            val start = backStackEntry.arguments?.getString("start") ?: ""
+                            val end = backStackEntry.arguments?.getString("end") ?: ""
+                            FloorSelectionScreen(navController, date, start, end)
+                        }
+                        composable(
+                            route = "parkingFixed/{floor}/{date}/{start}/{end}",
+                            arguments = listOf(
+                                navArgument("floor") { type = NavType.StringType },
+                                navArgument("date") { type = NavType.StringType },
+                                navArgument("start") { type = NavType.StringType },
+                                navArgument("end") { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val floor = backStackEntry.arguments?.getString("floor") ?: "floor1"
+                            val date = backStackEntry.arguments?.getString("date") ?: ""
+                            val start = backStackEntry.arguments?.getString("start") ?: ""
+                            val end = backStackEntry.arguments?.getString("end") ?: ""
+                            ParkingScreenWithDatePreSelected(floor, date, start, end, navController)
+                        }
+
 
 
                     }
@@ -312,26 +346,46 @@ fun HomeScreen(navController: NavHostController) {
     var reservationData by remember { mutableStateOf<Map<String, String>?>(null) }
 
 
-    LaunchedEffect(userId, TODAY_DATE) {
+    LaunchedEffect(userId) {
         if (userId != null) {
             val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-            val reservationRef = db.getReference("reservations").child(userId)
-            reservationRef.addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    val date = snapshot.child("date").getValue(String::class.java)
-                    if (snapshot.exists() && date == TODAY_DATE) {
-                        val data = mapOf(
-                            "plate" to (snapshot.child("plate").getValue(String::class.java) ?: ""),
-                            "floor" to (snapshot.child("floor").getValue(String::class.java) ?: ""),
-                            "slotId" to (snapshot.child("slotId").getValue(String::class.java) ?: ""),
-                            "startTime" to (snapshot.child("startTime").getValue(String::class.java) ?: ""),
-                            "endTime" to (snapshot.child("endTime").getValue(String::class.java) ?: ""),
-                            "date" to (date ?: "")
-                        )
+            val reservationRoot = db.getReference("reservations").child(userId)
 
-                        reservationData = data
-                    } else {
-                        reservationData = null
+            reservationRoot.addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val now = Calendar.getInstance()
+                    val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
+                    val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now.time)
+
+                    for (dateSnapshot in snapshot.children) {
+                        val dateKey = dateSnapshot.key ?: continue
+                        val endTime = dateSnapshot.child("endTime").getValue(String::class.java) ?: continue
+                        val floor = dateSnapshot.child("floor").getValue(String::class.java) ?: continue
+                        val slotId = dateSnapshot.child("slotId").getValue(String::class.java) ?: continue
+
+                        val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+                        val current = sdf.parse(currentTime)
+                        val end = sdf.parse(endTime)
+
+                        if (dateKey == currentDate && current != null && end != null && current.after(end)) {
+                            // Reservation expired
+                            db.getReference("slots").child(floor).child(slotId).child(dateKey).child("status")
+                                .setValue("available")
+                            reservationRoot.child(dateKey).removeValue()
+                            Log.d("EXPIRE", "Expired reservation on $dateKey for $slotId")
+                        }
+                        else if (dateKey == currentDate) {
+                            // Active reservation today
+                            val data = mapOf(
+                                "plate" to (dateSnapshot.child("plate").getValue(String::class.java) ?: ""),
+                                "floor" to floor,
+                                "slotId" to slotId,
+                                "startTime" to (dateSnapshot.child("startTime").getValue(String::class.java) ?: ""),
+                                "endTime" to endTime,
+                                "date" to dateKey
+                            )
+                            reservationData = data
+                        }
                     }
                 }
 
@@ -341,6 +395,7 @@ fun HomeScreen(navController: NavHostController) {
             })
         }
     }
+
 
 
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -501,6 +556,243 @@ fun HomeScreen(navController: NavHostController) {
         }
     }
 }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FloorSelectionScreen(navController: NavHostController, date: String, start: String, end: String) {
+    val floors = listOf("floor1", "floor2", "floor3", "floor4")
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select Floor") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Choose a floor to reserve on:", style = MaterialTheme.typography.titleMedium)
+
+            floors.forEach { floor ->
+                Button(
+                    onClick = {
+                        navController.navigate("parkingFixed/$floor/$date/$start/$end")
+
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = floor.replace("floor", "Floor ").uppercase())
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SlotReservationDialogFixedTime(
+    floor: String,
+    slotId: String,
+    date: String,
+    startTime: String,
+    endTime: String,
+    onDismiss: () -> Unit,
+    onReserveConfirmed: (Context, String, String, String, String) -> Unit
+) {
+    val context = LocalContext.current
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+
+    var vehicleList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedVehicle by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(false) }
+
+    // 🔁 Load vehicles
+    LaunchedEffect(Unit) {
+        val vehicleRef = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
+            .getReference("users").child(userId).child("vehicles")
+
+        vehicleRef.addListenerForSingleValueEvent(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val list = mutableListOf<String>()
+                for (vehicle in snapshot.children) {
+                    val plate = vehicle.child("plate").getValue(String::class.java)
+                    if (!plate.isNullOrBlank()) list.add(plate)
+                }
+                vehicleList = list
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (selectedVehicle.isNotEmpty()) {
+                        onReserveConfirmed(context, date, startTime, endTime, selectedVehicle)
+                        onDismiss()
+                    } else {
+                        Toast.makeText(context, "Please select a vehicle", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            ) {
+                Text("Reserve Now")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        title = { Text("Reserve Slot $slotId") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Date: $date")
+                Text("Time: $startTime – $endTime")
+
+                // 🔽 Vehicle dropdown
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedVehicle,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Select Vehicle") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                        },
+                        modifier = Modifier.menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        vehicleList.forEach { plate ->
+                            DropdownMenuItem(
+                                text = { Text(plate) },
+                                onClick = {
+                                    selectedVehicle = plate
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ParkingScreenWithDatePreSelected(
+    floor: String,
+    date: String,
+    startTime: String,
+    endTime: String,
+    navController: NavHostController
+) {
+    val context = LocalContext.current
+    val dbRef = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
+        .getReference("slots").child(floor)
+
+    var slotMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var selectedSlot by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(floor, date) {
+        dbRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val map = mutableMapOf<String, String>()
+                for (slot in snapshot.children) {
+                    val status = slot.child(date).child("status").getValue(String::class.java) ?: "available"
+                    map[slot.key ?: ""] = status
+                }
+                slotMap = map
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Toast.makeText(context, "DB Error: ${error.message}", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select Slot - ${floor.uppercase()}") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (slotMap.isEmpty()) {
+                Text("No slots found.", style = MaterialTheme.typography.bodyLarge)
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(slotMap.entries.toList()) { (slotId, status) ->
+                        val isAvailable = status == "available"
+                        Button(
+                            onClick = { selectedSlot = slotId },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAvailable) Color(0xFF4CAF50) else Color(0xFFB71C1C),
+                                disabledContainerColor = Color(0xFFB71C1C),
+                                disabledContentColor = Color.White
+                            ),
+                            enabled = isAvailable
+                        ) {
+                            Text(slotId)
+                        }
+                    }
+                }
+            }
+
+            selectedSlot?.let { slotId ->
+                SlotReservationDialogFixedTime(
+                    floor = floor,
+                    slotId = slotId,
+                    date = date,
+                    startTime = startTime,
+                    endTime = endTime,
+                    onDismiss = { selectedSlot = null },
+                    onReserveConfirmed = { context, d, s, e, plate ->
+                        reserveSlot(context, floor, slotId, d, s, e, plate)
+                    }
+                )
+
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -620,7 +912,9 @@ fun reserveSlot(
 ) {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
     val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-    val reservationRef = db.getReference("reservations").child(userId)
+    val reservationRef = db.getReference("reservations").child(userId).child(date)
+
+
 
     reservationRef.get().addOnSuccessListener { snapshot ->
         val existingDate = snapshot.child("date").getValue(String::class.java)
@@ -630,7 +924,6 @@ fun reserveSlot(
             val reservationData = mapOf(
                 "floor" to floor,
                 "slotId" to slotId,
-                "date" to date,
                 "startTime" to startTime,
                 "endTime" to endTime,
                 "plate" to plate
@@ -654,7 +947,10 @@ fun reserveSlot(
 fun cancelReservation() {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
     val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-    val reservationRef = db.getReference("reservations").child(userId)
+    val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    val reservationRef = db.getReference("reservations").child(userId).child(todayDate)
+
+
 
     reservationRef.get().addOnSuccessListener { snapshot ->
         if (snapshot.exists()) {
@@ -712,8 +1008,11 @@ fun SlotReservationDialog(
 
     val date = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
 
+
+    val calendar = Calendar.getInstance()
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
+
 
     var vehicleList by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedVehicle by remember { mutableStateOf("") }
@@ -764,16 +1063,38 @@ fun SlotReservationDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
-                OutlinedTextField(
-                    value = startTime,
-                    onValueChange = { startTime = it },
-                    label = { Text("Start Time (HH:MM)") }
-                )
-                OutlinedTextField(
-                    value = endTime,
-                    onValueChange = { endTime = it },
-                    label = { Text("End Time (HH:MM)") }
-                )
+                Button(
+                    onClick = {
+                        TimePickerDialog(
+                            context,
+                            { _, hour: Int, minute: Int ->
+                                startTime = String.format("%02d:%02d", hour, minute)
+                            },
+                            calendar.get(Calendar.HOUR_OF_DAY),
+                            calendar.get(Calendar.MINUTE),
+                            true
+                        ).show()
+                    }
+                ) {
+                    Text(if (startTime.isEmpty()) "Pick Start Time" else "Start: $startTime")
+                }
+
+                Button(
+                    onClick = {
+                        TimePickerDialog(
+                            context,
+                            { _, hour: Int, minute: Int ->
+                                endTime = String.format("%02d:%02d", hour, minute)
+                            },
+                            calendar.get(Calendar.HOUR_OF_DAY),
+                            calendar.get(Calendar.MINUTE),
+                            true
+                        ).show()
+                    }
+                ) {
+                    Text(if (endTime.isEmpty()) "Pick End Time" else "End: $endTime")
+                }
+
 
                 // 🔽 Vehicle dropdown
                 ExposedDropdownMenuBox(
@@ -815,7 +1136,14 @@ fun SlotReservationDialog(
 fun CalendarScreen(navController: NavHostController) {
     val context = LocalContext.current
 
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val today = dateFormat.format(Date())
+    val calendar = Calendar.getInstance()
+
+
     var selectedDate by remember { mutableStateOf("") }
+
+
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
 
@@ -836,31 +1164,77 @@ fun CalendarScreen(navController: NavHostController) {
             Text("Schedule your Booking Now!", style = MaterialTheme.typography.titleMedium)
             Text("Select Date")
 
-            OutlinedTextField(
-                value = selectedDate,
-                onValueChange = { selectedDate = it },
-                label = { Text("Date (YYYY-MM-DD)") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Button(
+                onClick = {
+                    val datePicker = DatePickerDialog(
+                        context,
+                        { _, year, month, day ->
+                            val cal = Calendar.getInstance()
+                            cal.set(year, month, day)
+                            selectedDate = dateFormat.format(cal.time)
+                        },
+                        calendar.get(Calendar.YEAR),
+                        calendar.get(Calendar.MONTH),
+                        calendar.get(Calendar.DAY_OF_MONTH) + 1
+                    )
 
-            OutlinedTextField(
-                value = startTime,
-                onValueChange = { startTime = it },
-                label = { Text("Start Time (HH:MM)") },
+                    datePicker.datePicker.minDate = calendar.timeInMillis + 24 * 60 * 60 * 1000 // disable today
+                    datePicker.show()
+                },
                 modifier = Modifier.fillMaxWidth()
-            )
+            ) {
+                Text(if (selectedDate.isEmpty()) "Select Date" else "Date: $selectedDate")
+            }
 
-            OutlinedTextField(
-                value = endTime,
-                onValueChange = { endTime = it },
-                label = { Text("End Time (HH:MM)") },
-                modifier = Modifier.fillMaxWidth()
-            )
 
             Button(
                 onClick = {
+                    val timePicker = android.app.TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            startTime = String.format("%02d:%02d", hour, minute)
+                        },
+                        8, 0, true // default 08:00
+                    )
+                    timePicker.show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (startTime.isEmpty()) "Select Start Time" else "Start: $startTime")
+            }
+
+
+            Button(
+                onClick = {
+                    val timePicker = android.app.TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            endTime = String.format("%02d:%02d", hour, minute)
+                        },
+                        10, 0, true // default 10:00
+                    )
+                    timePicker.show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (endTime.isEmpty()) "Select End Time" else "End: $endTime")
+            }
+
+
+            Button(
+                onClick = {
+                    if (selectedDate <= today) {
+                        Toast.makeText(context, "Pick a date after today", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
                     if (selectedDate.isNotBlank() && startTime.isNotBlank() && endTime.isNotBlank()) {
-                        navController.navigate("parking/floor1/$selectedDate/$startTime/$endTime")
+                        // Save these values into a temporary navigation route
+                        if (selectedDate.isNotBlank() && startTime.isNotBlank() && endTime.isNotBlank()) {
+                            // Navigate to new screen that shows floor selection
+                            navController.navigate("selectFloor/$selectedDate/$startTime/$endTime")
+                        }
+
                     } else {
                         Toast.makeText(context, "Fill in all fields", Toast.LENGTH_SHORT).show()
                     }
@@ -869,6 +1243,7 @@ fun CalendarScreen(navController: NavHostController) {
             ) {
                 Text("CONTINUE TO SLOT SELECTION")
             }
+
         }
     }
 }
