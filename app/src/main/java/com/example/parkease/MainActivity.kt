@@ -327,8 +327,9 @@ fun HomeScreen(navController: NavHostController) {
                             "slotId" to (snapshot.child("slotId").getValue(String::class.java) ?: ""),
                             "startTime" to (snapshot.child("startTime").getValue(String::class.java) ?: ""),
                             "endTime" to (snapshot.child("endTime").getValue(String::class.java) ?: ""),
-                            "date" to date
+                            "date" to (date ?: "")
                         )
+
                         reservationData = data
                     } else {
                         reservationData = null
@@ -687,7 +688,8 @@ fun SlotReservationDialog(
     val context = LocalContext.current
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
 
-    var date by remember { mutableStateOf("") }
+    val date = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
 
@@ -738,11 +740,7 @@ fun SlotReservationDialog(
         title = { Text("Reserve Slot $slotId") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = date,
-                    onValueChange = { date = it },
-                    label = { Text("Date (YYYY-MM-DD)") }
-                )
+
                 OutlinedTextField(
                     value = startTime,
                     onValueChange = { startTime = it },
