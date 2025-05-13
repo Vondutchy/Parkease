@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.content.Context
 
 
 class MainActivity : ComponentActivity() {
@@ -299,8 +300,7 @@ fun initializeSlots() {
     }
 }
 
-
-
+val TODAY_DATE: String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
 @Composable
 fun HomeScreen(navController: NavHostController) {
@@ -311,16 +311,15 @@ fun HomeScreen(navController: NavHostController) {
     val userId = FirebaseAuth.getInstance().currentUser?.uid
     var reservationData by remember { mutableStateOf<Map<String, String>?>(null) }
 
-    val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
 
-    LaunchedEffect(userId, todayDate) {
+    LaunchedEffect(userId, TODAY_DATE) {
         if (userId != null) {
             val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
             val reservationRef = db.getReference("reservations").child(userId)
             reservationRef.addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val date = snapshot.child("date").getValue(String::class.java)
-                    if (snapshot.exists() && date == todayDate) {
+                    if (snapshot.exists() && date == TODAY_DATE) {
                         val data = mapOf(
                             "plate" to (snapshot.child("plate").getValue(String::class.java) ?: ""),
                             "floor" to (snapshot.child("floor").getValue(String::class.java) ?: ""),
@@ -363,7 +362,7 @@ fun HomeScreen(navController: NavHostController) {
                     override fun onDataChange(snapshot: DataSnapshot) {
                         var count = 0
                         for (slot in snapshot.children) {
-                            val todayNode = slot.child(todayDate)
+                            val todayNode = slot.child(TODAY_DATE)
                             if (todayNode.hasChild("status")) {
                                 val status = todayNode.child("status").getValue(String::class.java)
                                 if (status == "available") count++
@@ -513,11 +512,11 @@ fun ParkingScreen(
     endTime: String? = null
 ) {
     val context = LocalContext.current
-    val todayDate: String = remember {
+    val TODAY_DATE: String = remember {
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     }
 
-    val effectiveDate = selectedDate ?: todayDate
+    val effectiveDate = selectedDate ?: TODAY_DATE
 
     val dbRef = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
         .getReference("slots")
@@ -599,36 +598,58 @@ fun ParkingScreen(
                     floor = floor,
                     slotId = slotId,
                     onDismiss = { selectedSlot = null },
-                    onReserveConfirmed = { date, start, end, plate ->
-                        reserveSlot(floor, slotId, date, start, end, plate)
+                    onReserveConfirmed = { context, date, start, end, plate ->
+                        reserveSlot(context, floor, slotId, date, start, end, plate)
                     }
                 )
+
 
             }
         }
     }
 }
 
-fun reserveSlot(floor: String, slotId: String, date: String, startTime: String, endTime: String, plate: String) {
+fun reserveSlot(
+    context: Context,
+    floor: String,
+    slotId: String,
+    date: String,
+    startTime: String,
+    endTime: String,
+    plate: String
+) {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
     val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-
-    // 1. Save under /reservations/userID
     val reservationRef = db.getReference("reservations").child(userId)
-    val reservationData = mapOf(
-        "floor" to floor,
-        "slotId" to slotId,
-        "date" to date,
-        "startTime" to startTime,
-        "endTime" to endTime,
-        "plate" to plate
-    )
-    reservationRef.setValue(reservationData)
 
-    // 2. Save under slots/floor/slot/date/status
-    val slotRef = db.getReference("slots").child(floor).child(slotId).child(date).child("status")
-    slotRef.setValue("reserved")
+    reservationRef.get().addOnSuccessListener { snapshot ->
+        val existingDate = snapshot.child("date").getValue(String::class.java)
+        if (snapshot.exists() && existingDate == date) {
+            Toast.makeText(context, "You already have a reservation for today!", Toast.LENGTH_SHORT).show()
+        } else {
+            val reservationData = mapOf(
+                "floor" to floor,
+                "slotId" to slotId,
+                "date" to date,
+                "startTime" to startTime,
+                "endTime" to endTime,
+                "plate" to plate
+            )
+            reservationRef.setValue(reservationData)
+
+            val slotRef = db.getReference("slots").child(floor).child(slotId).child(date).child("status")
+            Log.d("RESERVE_SLOT", "Writing status to /slots/$floor/$slotId/$date/status")
+
+            slotRef.setValue("reserved").addOnSuccessListener {
+                Log.d("RESERVE_SLOT", "✅ Slot marked as reserved: $floor/$slotId/$date")
+            }.addOnFailureListener {
+                Log.e("RESERVE_SLOT", "❌ Failed to reserve slot: ${it.message}")
+            }
+
+        }
+    }
 }
+
 
 fun cancelReservation() {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
@@ -646,7 +667,7 @@ fun cancelReservation() {
                 slotStatusRef.setValue("available")
             }
 
-            // Remove reservation entry
+            // Delete reservation
             reservationRef.removeValue()
         }
     }
@@ -683,7 +704,8 @@ fun SlotReservationDialog(
     floor: String,
     slotId: String,
     onDismiss: () -> Unit,
-    onReserveConfirmed: (String, String, String, String) -> Unit
+    onReserveConfirmed: (Context, String, String, String, String) -> Unit
+
 ) {
     val context = LocalContext.current
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
@@ -722,7 +744,8 @@ fun SlotReservationDialog(
             Button(
                 onClick = {
                     if (date.isNotEmpty() && startTime.isNotEmpty() && endTime.isNotEmpty() && selectedVehicle.isNotEmpty()) {
-                        onReserveConfirmed(date, startTime, endTime, selectedVehicle)
+                        onReserveConfirmed(context, date, startTime, endTime, selectedVehicle)
+
                         onDismiss()
                     } else {
                         Toast.makeText(context, "Complete all fields first", Toast.LENGTH_SHORT).show()
