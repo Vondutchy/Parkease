@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -23,8 +24,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -46,6 +49,28 @@ import com.google.firebase.database.*
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
+import com.kizitonwose.calendar.compose.*
+import com.kizitonwose.calendar.core.*
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.TextStyle
+import java.time.DayOfWeek
+import androidx.compose.foundation.border
+import com.google.android.gms.tasks.Task // Added this import
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,9 +96,18 @@ fun ParkEaseApp() {
     val authViewModel: AuthViewModel = viewModel()
     val authState by authViewModel.uiState.collectAsState()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val currentUser = FirebaseAuth.getInstance().currentUser
 
-    LaunchedEffect(authState) {
-        if (!authState.isAuthenticated) {
+    LaunchedEffect(Unit) { // Changed from authState to Unit to run once on app start
+        if (currentUser != null) {
+            // User is already signed in, update AuthViewModel state
+            authViewModel.setAuthenticated(true)
+            navController.navigate(Screen.Home.route) {
+                popUpTo(navController.graph.startDestinationId) {
+                    inclusive = true
+                }
+            }
+        } else if (!authState.isAuthenticated) {
             navController.navigate(Screen.Greeting.route) {
                 popUpTo(navController.graph.startDestinationId) {
                     inclusive = true
@@ -81,6 +115,30 @@ fun ParkEaseApp() {
             }
         }
     }
+
+    // This LaunchedEffect handles navigation when authState changes (e.g., after login/logout)
+    LaunchedEffect(authState.isAuthenticated) {
+        if (authState.isAuthenticated && currentUser != null) {
+            if (currentRoute == Screen.Greeting.route || currentRoute == Screen.SignIn.route || currentRoute == Screen.SignUp.route) {
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        inclusive = true
+                    }
+                }
+            }
+        } else if (!authState.isAuthenticated && currentUser == null) {
+            // Only navigate to Greeting if not already there and user is truly logged out
+            if (currentRoute != Screen.Greeting.route) {
+                navController.navigate(Screen.Greeting.route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        inclusive = true
+                    }
+                }
+            }
+        }
+    }
+
+    Log.d("ParkEaseApp_BottomBar", "isAuthenticated: ${authState.isAuthenticated}, currentRoute: $currentRoute, currentUser: ${currentUser?.uid}")
 
     Scaffold(
         bottomBar = {
@@ -199,180 +257,179 @@ fun ParkEaseApp() {
 @Composable
 fun SignUpScreen(onSignUpSuccess: () -> Unit, onSignInClick: () -> Unit) {
     val context = LocalContext.current
-    var username by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
+    var usernameInput by remember { mutableStateOf("") }
+    var emailInput by remember { mutableStateOf("") }
+    var phoneInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
     val authViewModel: AuthViewModel = viewModel()
+    val authState by authViewModel.uiState.collectAsState()
 
-    val auth = FirebaseAuth.getInstance()
-    val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            "Create Account",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        // Username field
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(Icons.Default.Person, contentDescription = "Username")
-            }
-        )
-
-        // Email field
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(Icons.Default.Email, contentDescription = "Email")
-            },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Email
-            )
-        )
-
-        // Phone field
-        OutlinedTextField(
-            value = phone,
-            onValueChange = { phone = it },
-            label = { Text("Phone Number") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(Icons.Default.Phone, contentDescription = "Phone")
-            },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Phone
-            )
-        )
-
-        // Password field
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(Icons.Default.Lock, contentDescription = "Password")
-            },
-            trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Icon(
-                        if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (passwordVisible) "Hide password" else "Show password"
-                    )
-                }
-            },
-            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password
-            )
-        )
-
-        // Confirm Password field
-        OutlinedTextField(
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            label = { Text("Confirm Password") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(Icons.Default.Lock, contentDescription = "Confirm Password")
-            },
-            trailingIcon = {
-                IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
-                    Icon(
-                        if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password"
-                    )
-                }
-            },
-            visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password
-            )
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                if (username.isBlank()) {
-                    Toast.makeText(context, "Please enter a username", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                if (phone.isBlank()) {
-                    Toast.makeText(context, "Please enter a phone number", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                if (password != confirmPassword) {
-                    Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                if (password.length < 6) {
-                    Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-
-                isLoading = true
-                authViewModel.signUp(email, password)
-                val userId = auth.currentUser?.uid
-                if (userId != null) {
-                    // Save additional user info to Firebase Database
-                    val userRef = db.getReference("users").child(userId)
-                    val userData = mapOf(
-                        "username" to username,
-                        "email" to email,
-                        "phone" to phone
-                    )
-                    userRef.setValue(userData)
-                        .addOnSuccessListener {
-                            Toast.makeText(context, "Account created successfully!", Toast.LENGTH_SHORT).show()
-                            onSignUpSuccess()
-                        }
-                        .addOnFailureListener { e ->
-                            Toast.makeText(context, "Failed to save user data: ${e.message}", Toast.LENGTH_SHORT).show()
-                            isLoading = false
-                        }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            } else {
-                Text("Sign Up")
-            }
+    LaunchedEffect(authState) {
+        if (authState.isAuthenticated) {
+            Toast.makeText(context, "Account created successfully!", Toast.LENGTH_SHORT).show()
+            onSignUpSuccess()
+        } else if (authState.error != null) {
+            Toast.makeText(context, "Sign up failed: ${authState.error}", Toast.LENGTH_LONG).show()
         }
+    }
 
-        TextButton(onClick = onSignInClick) {
-            Text("Already have an account? Sign In")
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Full-screen background image
+        Image(
+            painter = painterResource(id = R.drawable.signin_bg),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        // Main content
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "Create Account",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            // Username field
+            OutlinedTextField(
+                value = usernameInput,
+                onValueChange = { usernameInput = it },
+                label = { Text("Username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = {
+                    Icon(Icons.Default.Person, contentDescription = "Username")
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Email field
+            OutlinedTextField(
+                value = emailInput,
+                onValueChange = { emailInput = it },
+                label = { Text("Email") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = {
+                    Icon(Icons.Default.Email, contentDescription = "Email")
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Phone field
+            OutlinedTextField(
+                value = phoneInput,
+                onValueChange = { phoneInput = it },
+                label = { Text("Phone Number") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = {
+                    Icon(Icons.Default.Phone, contentDescription = "Phone")
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Password field
+            OutlinedTextField(
+                value = passwordInput,
+                onValueChange = { passwordInput = it },
+                label = { Text("Password") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, contentDescription = "Password")
+                },
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                        )
+                    }
+                },
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Confirm Password field
+            OutlinedTextField(
+                value = confirmPasswordInput,
+                onValueChange = { confirmPasswordInput = it },
+                label = { Text("Confirm Password") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, contentDescription = "Confirm Password")
+                },
+                trailingIcon = {
+                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                        Icon(
+                            if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password"
+                        )
+                    }
+                },
+                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password
+                )
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    if (usernameInput.isBlank()) {
+                        Toast.makeText(context, "Please enter a username", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (phoneInput.isBlank()) {
+                        Toast.makeText(context, "Please enter a phone number", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (phoneInput.length != 11) {
+                        Toast.makeText(context, "Phone number must be exactly 11 digits", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (passwordInput != confirmPasswordInput) {
+                        Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (passwordInput.length < 6) {
+                        Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    authViewModel.signUp(emailInput, passwordInput, usernameInput, phoneInput)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !authState.isLoading
+            ) {
+                if (authState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text("Sign Up")
+                }
+            }
+            TextButton(onClick = onSignInClick) {
+                Text("Already have an account? Sign In")
+            }
         }
     }
 }
@@ -385,67 +442,79 @@ fun SignInScreen(onSignInSuccess: () -> Unit, onSignUpClick: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     val authViewModel: AuthViewModel = viewModel()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            singleLine = true,
-            leadingIcon = {
-                Icon(Icons.Default.Email, contentDescription = "Email")
-            }
+        // Full-screen background image
+        Image(
+            painter = painterResource(id = R.drawable.signin_bg),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            singleLine = true,
-            leadingIcon = {
-                Icon(Icons.Default.Lock, contentDescription = "Password")
-            }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        TextButton(onClick = onSignUpClick) {
-            Text("Don't have an account? Sign Up")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = {
-                if (email.isBlank() || password.isBlank()) {
-                    Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-                isLoading = true
-                authViewModel.signIn(email, password)
-                onSignInSuccess()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
+        // Main content
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center
         ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            } else {
-                Text("Sign In")
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Default.Email, contentDescription = "Email")
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Default.Lock, contentDescription = "Password")
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            TextButton(onClick = onSignUpClick) {
+                Text("Don't have an account? Sign Up")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    isLoading = true
+                    authViewModel.signIn(email, password)
+                    onSignInSuccess()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text("Sign In")
+                }
             }
         }
     }
@@ -453,20 +522,46 @@ fun SignInScreen(onSignInSuccess: () -> Unit, onSignUpClick: () -> Unit) {
 
 @Composable
 fun GreetingScreen(onSignInClick: () -> Unit, onSignUpClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text("Welcome to ParkEase!", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = onSignInClick, modifier = Modifier.fillMaxWidth()) {
-            Text("Sign In")
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Button(onClick = onSignUpClick, modifier = Modifier.fillMaxWidth()) {
-            Text("Sign Up")
+        // Full-screen background image
+        Image(
+            painter = painterResource(id = R.drawable.greetings_bg),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        // Main content
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp),
+            verticalArrangement = Arrangement.Bottom,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            OutlinedButton(
+                onClick = onSignInClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(2.dp, Color.Black)
+            ) {
+                Text("SIGN IN", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = onSignUpClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(2.dp, Color.Black)
+            ) {
+                Text("SIGN UP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(180.dp)) // Move buttons up from the bottom
         }
     }
 }
@@ -496,76 +591,93 @@ fun initializeSlots() {
 
 val TODAY_DATE: String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(navController: NavHostController) {
     val user = FirebaseAuth.getInstance().currentUser
     val userId = user?.uid ?: return
     val context = LocalContext.current
     var userName by remember { mutableStateOf("User") }
-    var reservationData by remember { mutableStateOf<Map<String, String>?>(null) }
+    var displayedReservations by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
+    val customButtonColor = Color(0xFF3B82F6)
+    val whiteCardColor = Color.White
+    val blackTextColor = Color.Black
 
-    // Fetch username
     LaunchedEffect(userId) {
+        Log.d("HomeScreen_User", "Attempting to fetch username for userId: $userId")
         val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
         db.getReference("users").child(userId).child("username")
             .get()
             .addOnSuccessListener { snapshot ->
                 val name = snapshot.getValue(String::class.java)
-                if (!name.isNullOrEmpty()) {
-                    userName = name
-                }
+                if (!name.isNullOrEmpty()) userName = name
+            }
+            .addOnFailureListener { exception ->
+                Log.e("HomeScreen_User", "Failed to fetch username: ${exception.message}")
             }
     }
 
-    // Check for expired reservations when the screen loads and every 3 seconds
     LaunchedEffect(Unit) {
         checkAndUpdateExpiredReservations()
-        while(true) {
-            delay(3000) // Check every 3 seconds
+        while (true) {
+            delay(3000)
             checkAndUpdateExpiredReservations()
         }
     }
 
+    // Fetch and process reservations
     LaunchedEffect(userId) {
         if (userId != null) {
             val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
             val reservationRoot = db.getReference("reservations").child(userId)
 
-            reservationRoot.addListenerForSingleValueEvent(object : ValueEventListener {
+            reservationRoot.addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val now = Calendar.getInstance()
-                    val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
-                    val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now.time)
+                    val currentDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
+                    
+                    val newReservationsList = mutableListOf<Map<String, String>>()
+                    var todayReservation: Map<String, String>? = null
+                    var earliestFutureReservation: Map<String, String>? = null
 
                     for (dateSnapshot in snapshot.children) {
                         val dateKey = dateSnapshot.key ?: continue
-                        val endTime = dateSnapshot.child("endTime").getValue(String::class.java) ?: continue
-                        val floor = dateSnapshot.child("floor").getValue(String::class.java) ?: continue
-                        val slotId = dateSnapshot.child("slotId").getValue(String::class.java) ?: continue
+                        val reservationDetails = mapOf(
+                            "plate" to (dateSnapshot.child("plate").getValue(String::class.java) ?: ""),
+                            "floor" to (dateSnapshot.child("floor").getValue(String::class.java) ?: ""),
+                            "slotId" to (dateSnapshot.child("slotId").getValue(String::class.java) ?: ""),
+                            "startTime" to (dateSnapshot.child("startTime").getValue(String::class.java) ?: ""),
+                            "endTime" to (dateSnapshot.child("endTime").getValue(String::class.java) ?: ""),
+                            "date" to dateKey
+                        )
 
-                        if (dateKey == currentDate) {
-                            // Active reservation today
-                            val data = mapOf(
-                                "plate" to (dateSnapshot.child("plate").getValue(String::class.java) ?: ""),
-                                "floor" to floor,
-                                "slotId" to slotId,
-                                "startTime" to (dateSnapshot.child("startTime").getValue(String::class.java) ?: ""),
-                                "endTime" to endTime,
-                                "date" to dateKey
-                            )
-                            reservationData = data
+                        if (dateKey == currentDateStr) {
+                            todayReservation = reservationDetails
+                        } else if (dateKey > currentDateStr) {
+                            if (earliestFutureReservation == null || dateKey < earliestFutureReservation!!["date"]!!) {
+                                earliestFutureReservation = reservationDetails
+                            }
                         }
                     }
+
+                    todayReservation?.let { newReservationsList.add(it) }
+                    earliestFutureReservation?.let { newReservationsList.add(it) } // Simplified addition
+                    
+                    // Ensure no duplicates by date
+                    displayedReservations = newReservationsList.distinctBy { it["date"] } 
+                    Log.d("HomeScreen_Res", "Displayed Reservations: $displayedReservations")
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Toast.makeText(context, "Failed to load reservation", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Failed to load reservations: ${error.message}", Toast.LENGTH_SHORT).show()
+                    Log.e("HomeScreen_Res", "Failed to load reservations: ${error.message}")
                 }
             })
         }
     }
 
     var showCancelDialog by remember { mutableStateOf(false) }
+    var reservationToCancelDate by remember { mutableStateOf<String?>(null) }
 
     // Floor counts
     var floorCounts by remember { mutableStateOf(mapOf<String, Int>()) }
@@ -621,14 +733,15 @@ fun HomeScreen(navController: NavHostController) {
         }
     }
 
-    if (showCancelDialog) {
+    if (showCancelDialog && reservationToCancelDate != null) {
         AlertDialog(
             onDismissRequest = { showCancelDialog = false },
             confirmButton = {
                 Button(
                     onClick = {
-                        cancelReservation()
+                        cancelReservation(reservationToCancelDate!!)
                         showCancelDialog = false
+                        reservationToCancelDate = null
                         Toast.makeText(context, "Reservation cancelled", Toast.LENGTH_SHORT).show()
                     }
                 ) {
@@ -645,111 +758,164 @@ fun HomeScreen(navController: NavHostController) {
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("Home", style = MaterialTheme.typography.headlineMedium)
-        Text("Good Day, $userName!", style = MaterialTheme.typography.titleMedium)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = R.drawable.home_bg),
+            contentDescription = "Background",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
 
-        // Reservation Card
-        if (reservationData != null) {
-            val plate = reservationData!!["plate"] ?: ""
-            val floor = reservationData!!["floor"] ?: ""
-            val slotId = reservationData!!["slotId"] ?: ""
-            val start = reservationData!!["startTime"] ?: ""
-            val end = reservationData!!["endTime"] ?: ""
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showCancelDialog = true },
-                shape = RoundedCornerShape(20.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(text = plate, style = MaterialTheme.typography.titleLarge)
-                        Text(text = "${floor.uppercase()} • $slotId")
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "$start–$end", style = MaterialTheme.typography.titleMedium)
-                        Text(text = "reserved", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        } else {
-            // No reservation message
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { navController.navigate(Screen.Calendar.route) },
-                shape = RoundedCornerShape(20.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Make a reservation now",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Icon(
-                        Icons.Default.CalendarToday,
-                        contentDescription = "Calendar",
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-            }
-        }
-
-        Text("Available Slots", style = MaterialTheme.typography.titleMedium)
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxHeight()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(4) { index ->
-                val floorKey = "floor${index + 1}"
-                val slotCount = floorCounts[floorKey] ?: 0
-                val floorLabel = "${index + 1}st FLOOR"
-                    .replace("1st", "1st")
-                    .replace("2st", "2nd")
-                    .replace("3st", "3rd")
-                    .replace("4st", "4th")
+            Text("Home", style = MaterialTheme.typography.headlineMedium)
+            Text("Good Day, $userName!", style = MaterialTheme.typography.titleMedium)
 
+            if (displayedReservations.isNotEmpty()) {
+                val pagerState = rememberPagerState(pageCount = { displayedReservations.size })
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxWidth()
+                    // consider adding .height(IntrinsicSize.Min) or a fixed height for the pager if cards vary
+                ) { pageIndex ->
+                    val reservation = displayedReservations[pageIndex]
+                    val plate = reservation["plate"] ?: ""
+                    val floor = reservation["floor"] ?: ""
+                    val slotId = reservation["slotId"] ?: ""
+                    val start = reservation["startTime"] ?: ""
+                    val end = reservation["endTime"] ?: ""
+                    val date = reservation["date"] ?: ""
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp) // Optional: add some spacing between paged items if visible
+                            .clickable {
+                                reservationToCancelDate = date
+                                showCancelDialog = true
+                            },
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = whiteCardColor)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = plate, style = MaterialTheme.typography.titleLarge, color = blackTextColor)
+                                Text(text = "${floor.uppercase()} • $slotId", color = blackTextColor.copy(alpha = 0.8f))
+                                Text(text = "Date: $date", style = MaterialTheme.typography.bodySmall, color = blackTextColor.copy(alpha = 0.7f))
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(text = "$start–$end", style = MaterialTheme.typography.titleMedium, color = blackTextColor)
+                                Text(text = "reserved", style = MaterialTheme.typography.bodySmall, color = blackTextColor.copy(alpha = 0.8f))
+                            }
+                        }
+                    }
+                }
+                // Optional: Add PagerIndicator if more than one page
+                if (pagerState.pageCount > 1) {
+                    Row(
+                        Modifier
+                            .height(20.dp)
+                            .fillMaxWidth()
+                            .align(Alignment.CenterHorizontally),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        repeat(pagerState.pageCount) { iteration ->
+                            val color = if (pagerState.currentPage == iteration) Color.DarkGray else Color.LightGray
+                            Box(
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .background(color, CircleShape)
+                                    .size(8.dp)
+                            )
+                        }
+                    }
+                }
+
+            } else {
+                // No reservation message
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clickable {
-                            navController.navigate(Screen.Parking.createRoute(floorKey))
-                        },
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        .clickable { navController.navigate(Screen.Calendar.route) },
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = whiteCardColor)
                 ) {
                     Column(
                         modifier = Modifier
                             .padding(16.dp)
-                            .fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                            .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(floorLabel, style = MaterialTheme.typography.bodyLarge)
-                        Text("$slotCount", style = MaterialTheme.typography.displayMedium)
-                        Text("Slots Left", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "Make a reservation now",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = blackTextColor
+                        )
+                        Icon(
+                            Icons.Default.CalendarToday,
+                            contentDescription = "Calendar",
+                            modifier = Modifier.padding(top = 8.dp),
+                            tint = blackTextColor
+                        )
+                    }
+                }
+            }
+
+            Text("Available Slots", style = MaterialTheme.typography.titleMedium)
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxHeight()
+            ) {
+                items(4) { index ->
+                    val floorKey = "floor${index + 1}"
+                    val slotCount = floorCounts[floorKey] ?: 0
+                    val floorLabel = "${index + 1}st FLOOR"
+                        .replace("1st", "1st")
+                        .replace("2st", "2nd")
+                        .replace("3st", "3rd")
+                        .replace("4st", "4th")
+
+                    // Determine card color based on index
+                    val cardColor = if (index == 1 || index == 2) whiteCardColor else customButtonColor
+                    val textColor = if (index == 1 || index == 2) blackTextColor else Color.White
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clickable {
+                                navController.navigate(Screen.Parking.createRoute(floorKey))
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(floorLabel, style = MaterialTheme.typography.bodyLarge, color = textColor)
+                            Text("$slotCount", style = MaterialTheme.typography.displayMedium, color = textColor)
+                            Text("Slots Left", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.8f))
+                        }
                     }
                 }
             }
@@ -911,51 +1077,62 @@ fun ParkingScreenWithDatePreSelected(
     var slotMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var selectedSlot by remember { mutableStateOf<String?>(null) }
 
-    // Initialize slots for the selected date if they don't exist
+    // Effect for initial slot check and initialization (runs once per floor/date combination)
     LaunchedEffect(floor, date) {
-        // First, check if slots exist for this date
+        Log.d("ParkingScreenWithDate", "Initial check/init effect for floor: $floor, date: $date")
         dbRef.get().addOnSuccessListener { snapshot ->
             var needsInitialization = true
-            
-            // Check if any slot has data for this date
             for (slot in snapshot.children) {
                 if (slot.child(date).exists()) {
                     needsInitialization = false
                     break
                 }
             }
-
             if (needsInitialization) {
                 Log.d("SLOTS_INIT", "Initializing slots for $floor on $date")
-                // Initialize all slots as available
                 for (i in 1..10) {
                     val slotId = "slot$i"
                     dbRef.child(slotId).child(date).child("status").setValue("available")
                         .addOnSuccessListener {
-                            Log.d("SLOTS_INIT", "✅ Initialized $slotId as available")
+                            Log.d("SLOTS_INIT", "✅ Initialized $slotId for $date as available")
                         }
                         .addOnFailureListener { error ->
-                            Log.e("SLOTS_INIT", "❌ Failed to initialize $slotId: ${error.message}")
+                            Log.e("SLOTS_INIT", "❌ Failed to initialize $slotId for $date: ${error.message}")
                         }
                 }
             }
+        }.addOnFailureListener {
+            Log.e("ParkingScreenWithDate", "Failed to get initial slot data for $floor, $date: ${it.message}")
+        }
+    }
 
-            // Set up real-time listener for slot status
-            dbRef.addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    val map = mutableMapOf<String, String>()
-                    for (slot in snapshot.children) {
-                        val status = slot.child(date).child("status").getValue(String::class.java) ?: "available"
-                        map[slot.key ?: ""] = status
-                        Log.d("SLOT_STATUS", "Slot ${slot.key}: $status")
-                    }
-                    slotMap = map
+    // Effect for setting up and tearing down the Firebase listener
+    DisposableEffect(floor, date) {
+        Log.d("ParkingScreenWithDate", "DisposableEffect for listener on floor: $floor, date: $date")
+        val valueEventListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val map = mutableMapOf<String, String>()
+                for (slot in snapshot.children) {
+                    val status = slot.child(date).child("status").getValue(String::class.java) ?: "available"
+                    map[slot.key ?: ""] = status
+                    Log.d("SLOT_STATUS", "Slot ${slot.key} for date $date: $status")
                 }
+                slotMap = map
+                Log.d("ParkingScreenWithDate", "slotMap updated for date $date with ${map.size} entries")
+            }
 
-                override fun onCancelled(error: DatabaseError) {
-                    Toast.makeText(context, "Failed to load slots: ${error.message}", Toast.LENGTH_SHORT).show()
-                }
-            })
+            override fun onCancelled(error: DatabaseError) {
+                Toast.makeText(context, "Failed to load slots: ${error.message}", Toast.LENGTH_SHORT).show()
+                Log.e("ParkingScreenWithDate", "Firebase listener cancelled for $floor, $date: ${error.message}")
+            }
+        }
+
+        dbRef.addValueEventListener(valueEventListener)
+        Log.d("ParkingScreenWithDate", "Added listener for $floor, $date in DisposableEffect")
+
+        onDispose {
+            dbRef.removeEventListener(valueEventListener)
+            Log.d("ParkingScreenWithDate", "Removed listener for $floor, $date in DisposableEffect onDispose")
         }
     }
 
@@ -1127,8 +1304,6 @@ fun ParkingScreen(
                         reserveSlot(context, floor, slotId, date, start, end, plate)
                     }
                 )
-
-
             }
         }
     }
@@ -1197,12 +1372,10 @@ fun reserveSlot(
     }
 }
 
-
-fun cancelReservation() {
+fun cancelReservation(date: String) {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
     val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
-    val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    val reservationRef = db.getReference("reservations").child(userId).child(todayDate)
+    val reservationRef = db.getReference("reservations").child(userId).child(date)
 
     reservationRef.get().addOnSuccessListener { snapshot ->
         if (snapshot.exists()) {
@@ -1211,10 +1384,10 @@ fun cancelReservation() {
 
             if (!floor.isNullOrEmpty() && !slotId.isNullOrEmpty()) {
                 // Update slot status to available
-                val slotRef = db.getReference("slots").child(floor).child(slotId).child(todayDate).child("status")
+                val slotRef = db.getReference("slots").child(floor).child(slotId).child(date).child("status")
                 slotRef.setValue("available")
                     .addOnSuccessListener {
-                        Log.d("CANCEL_RESERVATION", "✅ Slot marked as available: $floor/$slotId/$todayDate")
+                        Log.d("CANCEL_RESERVATION", "✅ Slot marked as available: $floor/$slotId/$date")
                         // Only remove the reservation after successfully updating the slot status
                         reservationRef.removeValue()
                             .addOnSuccessListener {
@@ -1231,8 +1404,6 @@ fun cancelReservation() {
         }
     }
 }
-
-
 
 fun getAvailableSlotCount(floor: String, onResult: (Int) -> Unit) {
     val dbRef = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
@@ -1264,18 +1435,15 @@ fun SlotReservationDialog(
     slotId: String,
     onDismiss: () -> Unit,
     onReserveConfirmed: (Context, String, String, String, String) -> Unit
-
 ) {
     val context = LocalContext.current
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
 
     val date = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
 
-
     val calendar = Calendar.getInstance()
     var startTime by remember { mutableStateOf("") }
     var endTime by remember { mutableStateOf("") }
-
 
     var vehicleList by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedVehicle by remember { mutableStateOf("") }
@@ -1358,7 +1526,6 @@ fun SlotReservationDialog(
                     Text(if (endTime.isEmpty()) "Pick End Time" else "End: $endTime")
                 }
 
-
                 // 🔽 Vehicle dropdown
                 ExposedDropdownMenuBox(
                     expanded = expanded,
@@ -1398,116 +1565,226 @@ fun SlotReservationDialog(
 @Composable
 fun CalendarScreen(navController: NavHostController) {
     val context = LocalContext.current
+    val today = remember { LocalDate.now() }
+    var selectedDate by remember { mutableStateOf(today) }
+    var startTime by remember { mutableStateOf("7:00 AM") }
+    var endTime by remember { mutableStateOf("12:00 PM") }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
 
-    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    val today = dateFormat.format(Date())
-    val calendar = Calendar.getInstance()
+    val currentMonth = remember { YearMonth.now() }
+    val firstMonth = remember { currentMonth.minusMonths(12) }
+    val lastMonth = remember { currentMonth.plusMonths(12) }
+    val daysOfWeek = remember { daysOfWeek() }
 
+    Box(modifier = Modifier.fillMaxSize()) { // Outer Box for background
+        Image(
+            painter = painterResource(id = R.drawable.calendar_bg),
+            contentDescription = "Calendar Background",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
 
-    var selectedDate by remember { mutableStateOf("") }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("CALENDAR") },
+                    actions = {
+                        IconButton(onClick = { navController.navigate(Screen.Profile.route) }) { // Navigate to profile
+                            Icon(Icons.Default.AccountCircle, contentDescription = "Profile")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent, // Make TopAppBar transparent
+                        titleContentColor = Color.Black, // Adjust if text is not visible
+                        actionIconContentColor = Color.Black // Adjust if icon is not visible
+                    )
+                )
+            },
+            containerColor = Color.Transparent // Make Scaffold container transparent
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+                    .fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(8.dp))
+                Text("Schedule your Booking Now!", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+                Spacer(Modifier.height(8.dp))
 
+                // Real Calendar Widget
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.8f), shape = RoundedCornerShape(16.dp)) // Slightly transparent white
+                        .border(2.dp, Color(0xFF3B82F6), shape = RoundedCornerShape(16.dp))
+                        .padding(8.dp)
+                ) {
+                    CalendarView(
+                        firstMonth = firstMonth,
+                        lastMonth = lastMonth,
+                        currentMonth = currentMonth,
+                        daysOfWeek = daysOfWeek,
+                        selectedDate = selectedDate,
+                        onDateSelected = { selectedDate = it }
+                    )
+                }
 
-    var startTime by remember { mutableStateOf("") }
-    var endTime by remember { mutableStateOf("") }
+                Spacer(Modifier.height(24.dp))
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("CALENDAR") }
+                // Time selection
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = { showStartTimePicker = true },
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6), contentColor = Color.White)
+                    ) {
+                        Text(startTime)
+                    }
+                    Icon(Icons.Default.ArrowForward, contentDescription = "to", tint = Color.Black, modifier = Modifier.padding(horizontal = 8.dp))
+                    Button(
+                        onClick = { showEndTimePicker = true },
+                        shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6), contentColor = Color.White)
+                    ) {
+                        Text(endTime)
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
+
+                Button(
+                    onClick = {
+                        navController.navigate("selectFloor/${selectedDate.toString()}/$startTime/$endTime")
+                    },
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6), contentColor = Color.White),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    Text("CONTINUE TO SLOT SELECTION", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    // Time pickers
+    if (showStartTimePicker) {
+        TimePickerDialog(
+            context,
+            { _, hour: Int, minute: Int ->
+                val ampm = if (hour < 12) "AM" else "PM"
+                val hour12 = if (hour == 0 || hour == 12) 12 else hour % 12
+                startTime = String.format("%d:%02d %s", hour12, minute, ampm)
+                showStartTimePicker = false
+            },
+            7, 0, false
+        ).show()
+    }
+    if (showEndTimePicker) {
+        TimePickerDialog(
+            context,
+            { _, hour: Int, minute: Int ->
+                val ampm = if (hour < 12) "AM" else "PM"
+                val hour12 = if (hour == 0 || hour == 12) 12 else hour % 12
+                endTime = String.format("%d:%02d %s", hour12, minute, ampm)
+                showEndTimePicker = false
+            },
+            12, 0, false
+        ).show()
+    }
+}
+
+@Composable
+fun CalendarView(
+    firstMonth: YearMonth,
+    lastMonth: YearMonth,
+    currentMonth: YearMonth,
+    daysOfWeek: List<DayOfWeek>,
+    selectedDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    val calendarState = rememberCalendarState(
+        startMonth = firstMonth,
+        endMonth = lastMonth,
+        firstVisibleMonth = currentMonth,
+        firstDayOfWeek = daysOfWeek.first()
+    )
+    val today = remember { LocalDate.now() }
+    val minSelectableDate = remember { today.plusDays(1) } // Only allow dates after today
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Month header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF3B82F6)),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = calendarState.firstVisibleMonth.yearMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).uppercase() +
+                        " " + calendarState.firstVisibleMonth.yearMonth.year,
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp)
             )
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+
+        // Days of week header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Schedule your Booking Now!", style = MaterialTheme.typography.titleMedium)
-            Text("Select Date")
-
-            Button(
-                onClick = {
-                    val datePicker = DatePickerDialog(
-                        context,
-                        { _, year, month, day ->
-                            val cal = Calendar.getInstance()
-                            cal.set(year, month, day)
-                            selectedDate = dateFormat.format(cal.time)
-                        },
-                        calendar.get(Calendar.YEAR),
-                        calendar.get(Calendar.MONTH),
-                        calendar.get(Calendar.DAY_OF_MONTH) + 1
-                    )
-
-                    datePicker.datePicker.minDate = calendar.timeInMillis + 24 * 60 * 60 * 1000 // disable today
-                    datePicker.show()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (selectedDate.isEmpty()) "Select Date" else "Date: $selectedDate")
+            daysOfWeek.forEach { dayOfWeek ->
+                Text(
+                    text = dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                    color = Color(0xFF3B82F6),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
             }
-
-
-            Button(
-                onClick = {
-                    val timePicker = android.app.TimePickerDialog(
-                        context,
-                        { _, hour, minute ->
-                            startTime = String.format("%02d:%02d", hour, minute)
-                        },
-                        8, 0, true // default 08:00
-                    )
-                    timePicker.show()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (startTime.isEmpty()) "Select Start Time" else "Start: $startTime")
-            }
-
-
-            Button(
-                onClick = {
-                    val timePicker = android.app.TimePickerDialog(
-                        context,
-                        { _, hour, minute ->
-                            endTime = String.format("%02d:%02d", hour, minute)
-                        },
-                        10, 0, true // default 10:00
-                    )
-                    timePicker.show()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (endTime.isEmpty()) "Select End Time" else "End: $endTime")
-            }
-
-
-            Button(
-                onClick = {
-                    if (selectedDate <= today) {
-                        Toast.makeText(context, "Pick a date after today", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    if (selectedDate.isNotBlank() && startTime.isNotBlank() && endTime.isNotBlank()) {
-                        // Save these values into a temporary navigation route
-                        if (selectedDate.isNotBlank() && startTime.isNotBlank() && endTime.isNotBlank()) {
-                            // Navigate to new screen that shows floor selection
-                            navController.navigate("selectFloor/$selectedDate/$startTime/$endTime")
-                        }
-
-                    } else {
-                        Toast.makeText(context, "Fill in all fields", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("CONTINUE TO SLOT SELECTION")
-            }
-
         }
+
+        // Calendar grid
+        HorizontalCalendar(
+            state = calendarState,
+            dayContent = { day ->
+                val isSelected = day.date == selectedDate
+                val isDisabled = day.date.isBefore(minSelectableDate)
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(1f)
+                        .padding(2.dp)
+                        .background(
+                            when {
+                                isSelected -> Color(0xFF3B82F6)
+                                else -> Color.Transparent
+                            },
+                            shape = CircleShape
+                        )
+                        .then(
+                            if (!isDisabled) Modifier.clickable { onDateSelected(day.date) } else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = day.date.dayOfMonth.toString(),
+                        color = when {
+                            isDisabled -> Color.LightGray
+                            isSelected -> Color.White
+                            else -> Color.Black
+                        }
+                    )
+                }
+            }
+        )
     }
 }
 
@@ -1517,8 +1794,13 @@ fun ProfileScreen(navController: NavHostController) {
     val context = LocalContext.current
     val currentUser = FirebaseAuth.getInstance().currentUser
     if (currentUser == null) {
-        Text("Not logged in.")
-        return
+        // Potentially navigate to Greeting or SignIn, or show a more prominent message
+        LaunchedEffect(Unit) {
+            navController.navigate(Screen.Greeting.route) {
+                popUpTo(navController.graph.startDestinationId) { inclusive = true }
+            }
+        }
+        return // Early return to prevent flicker or errors if currentUser is null
     }
     val userId = currentUser.uid
 
@@ -1535,14 +1817,21 @@ fun ProfileScreen(navController: NavHostController) {
     var isLoading by remember { mutableStateOf(true) }
 
     // Fetch user data
-    LaunchedEffect(Unit) {
+    LaunchedEffect(userId) { // Changed key to userId to refetch if it changes (though unlikely in this screen)
+        Log.d("ProfileScreen_User", "Attempting to fetch username for userId: $userId")
         userRef.child("username").get().addOnSuccessListener { snapshot ->
             val name = snapshot.getValue(String::class.java)
+            Log.d("ProfileScreen_User", "Fetched name from Firebase: '$name'")
             if (!name.isNullOrEmpty()) {
                 userName = name
+            } else {
+                // If username is not set in DB, try to use part of email or a default
+                userName = currentUser.email?.split("@")?.get(0) ?: "User"
             }
             isLoading = false
-        }.addOnFailureListener {
+        }.addOnFailureListener { exception ->
+            Log.e("ProfileScreen_User", "Failed to fetch username: ${exception.message}")
+            userName = currentUser.email?.split("@")?.get(0) ?: "User" // Fallback on error
             isLoading = false
         }
 
@@ -1558,141 +1847,173 @@ fun ProfileScreen(navController: NavHostController) {
                 vehicleList = newList
             }
 
-            override fun onCancelled(error: DatabaseError) {}
+            override fun onCancelled(error: DatabaseError) {
+                 Log.e("ProfileScreen_Vehicles", "Failed to fetch vehicles: ${error.message}")
+            }
         })
 
         userRef.child("notifications").get().addOnSuccessListener { snapshot ->
             notificationsEnabled = snapshot.getValue(Boolean::class.java) ?: true
+        }.addOnFailureListener {
+            Log.e("ProfileScreen_Notifs", "Failed to fetch notification settings: ${it.message}")
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Profile") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .padding(padding)
-                    .padding(16.dp)
-                    .fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // User Info Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    Box(modifier = Modifier.fillMaxSize()) { // Outer Box for background
+        Image(
+            painter = painterResource(id = R.drawable.calendar_bg), // Using calendar_bg as requested
+            contentDescription = "Profile Background",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Profile") },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent, // Make TopAppBar transparent
+                        titleContentColor = Color.Black, // Adjust if text is not visible
+                        navigationIconContentColor = Color.Black // Adjust if icon is not visible
+                    )
+                )
+            },
+            containerColor = Color.Transparent // Make Scaffold container transparent
+        ) { padding ->
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding), // Apply padding here too
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth()
+                    CircularProgressIndicator()
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .padding(padding)
+                        .padding(16.dp)
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // User Info Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)) // Slightly transparent
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = userName,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = Color.Black
+                                    )
+                                    Text(
+                                        text = userEmail,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.Gray
+                                    )
+                                }
+                                IconButton(onClick = { showEditNameDialog = true }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit Name", tint = Color.Black)
+                                }
+                            }
+                        }
+                    }
+
+                    // Notifications Section
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                         colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)) // Slightly transparent
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                Text(
-                                    text = userName,
-                                    style = MaterialTheme.typography.titleLarge
+                            Text(
+                                text = "Notifications",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.Black
+                            )
+                            Switch(
+                                checked = notificationsEnabled,
+                                onCheckedChange = { enabled ->
+                                    notificationsEnabled = enabled
+                                    userRef.child("notifications").setValue(enabled)
+                                    Toast.makeText(
+                                        context,
+                                        if (enabled) "Notifications enabled" else "Notifications disabled",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF3B82F6),
+                                    checkedTrackColor = Color(0xFF3B82F6).copy(alpha = 0.5f)
                                 )
-                                Text(
-                                    text = userEmail,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            IconButton(onClick = { showEditNameDialog = true }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit Name")
+                            )
+                        }
+                    }
+
+                    // Vehicles Section
+                    Text("Vehicles", style = MaterialTheme.typography.titleMedium, color = Color.Black, fontWeight = FontWeight.Bold)
+                    vehicleList.forEachIndexed { index, vehicle ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)) // Slightly transparent
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("Car ${index + 1}", style = MaterialTheme.typography.titleSmall, color = Color.DarkGray)
+                                Text(vehicle.first, color = Color.Black) // Brand + Model
+                                Text("Plate: ${vehicle.third}", color = Color.Black)
                             }
                         }
                     }
-                }
 
-                // Notifications Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Notifications",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Switch(
-                            checked = notificationsEnabled,
-                            onCheckedChange = { enabled ->
-                                notificationsEnabled = enabled
-                                userRef.child("notifications").setValue(enabled)
-                                Toast.makeText(
-                                    context,
-                                    if (enabled) "Notifications enabled" else "Notifications disabled",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        )
-                    }
-                }
-
-                // Vehicles Section
-                Text("Vehicles", style = MaterialTheme.typography.titleMedium)
-                vehicleList.forEachIndexed { index, vehicle ->
-                    Card(
+                    Button( // Changed from OutlinedButton to Button
+                        onClick = { showAddDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF3B82F6), // Signature blue background
+                            contentColor = Color.White // White text for contrast
+                        )
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Car ${index + 1}", style = MaterialTheme.typography.titleSmall)
-                            Text(vehicle.first) // Brand + Model
-                            Text("Plate: ${vehicle.third}")
-                        }
+                        Text("+ Add Vehicle")
                     }
-                }
 
-                OutlinedButton(
-                    onClick = { showAddDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("+ Add Vehicle")
-                }
-
-                // Logout Button
-                Spacer(modifier = Modifier.weight(1f))
-                Button(
-                    onClick = { showLogoutDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Log Out")
+                    // Logout Button
+                    Spacer(modifier = Modifier.weight(1f))
+                    Button(
+                        onClick = { showLogoutDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFD32F2F) // A more distinct red for logout
+                        )
+                    ) {
+                        Text("Log Out")
+                    }
                 }
             }
         }
-
+        // ... (Dialogs: Edit Name, Add Vehicle, Logout Confirmation remain the same) ...
         // Edit Name Dialog
         if (showEditNameDialog) {
             var newName by remember { mutableStateOf(userName) }
@@ -1708,14 +2029,17 @@ fun ProfileScreen(navController: NavHostController) {
                     )
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        if (newName.isNotBlank()) {
-                            userRef.child("username").setValue(newName)
-                            userName = newName
-                            Toast.makeText(context, "Name updated", Toast.LENGTH_SHORT).show()
-                        }
-                        showEditNameDialog = false
-                    }) {
+                    Button(
+                        onClick = {
+                            if (newName.isNotBlank()) {
+                                userRef.child("username").setValue(newName)
+                                userName = newName
+                                Toast.makeText(context, "Name updated", Toast.LENGTH_SHORT).show()
+                            }
+                            showEditNameDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)) // Signature blue
+                    ) {
                         Text("Save")
                     }
                 },
@@ -1756,13 +2080,16 @@ fun ProfileScreen(navController: NavHostController) {
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        val key = userRef.child("vehicles").push().key ?: "vehicle${System.currentTimeMillis()}"
-                        userRef.child("vehicles").child(key).setValue(
-                            mapOf("brand" to brand, "model" to model, "plate" to plate)
-                        )
-                        showAddDialog = false
-                    }) {
+                    Button(
+                        onClick = {
+                            val key = userRef.child("vehicles").push().key ?: "vehicle${System.currentTimeMillis()}"
+                            userRef.child("vehicles").child(key).setValue(
+                                mapOf("brand" to brand, "model" to model, "plate" to plate)
+                            )
+                            showAddDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)) // Signature blue
+                    ) {
                         Text("Save")
                     }
                 },
@@ -1776,6 +2103,7 @@ fun ProfileScreen(navController: NavHostController) {
 
         // Logout Confirmation Dialog
         if (showLogoutDialog) {
+            val authViewModel: AuthViewModel = viewModel() // Get ViewModel for logout
             AlertDialog(
                 onDismissRequest = { showLogoutDialog = false },
                 title = { Text("Confirm Logout") },
@@ -1783,12 +2111,9 @@ fun ProfileScreen(navController: NavHostController) {
                 confirmButton = {
                     Button(
                         onClick = {
-                            FirebaseAuth.getInstance().signOut()
-                            navController.navigate(Screen.Greeting.route) {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    inclusive = true
-                                }
-                            }
+                            authViewModel.signOut() // Use ViewModel to handle signout and state update
+                            // Navigation is now handled by LaunchedEffect in ParkEaseApp watching authState
+                            showLogoutDialog = false // Close dialog
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
@@ -1817,32 +2142,39 @@ fun BottomNavigationBar(navController: NavHostController) {
 
     val currentDestination = navController.currentBackStackEntryAsState().value?.destination
     val currentRoute = currentDestination?.route
+    val customColor = Color(0xFF3B82F6)
 
-    NavigationBar {
+    NavigationBar(containerColor = customColor) {
         items.forEach { screen ->
             NavigationBarItem(
                 selected = currentRoute == screen.route,
                 onClick = {
                     if (currentRoute != screen.route) {
                         navController.navigate(screen.route) {
-                            // Pop up to the start destination
                             popUpTo(Screen.Home.route) {
                                 inclusive = false
                             }
-                            // Avoid multiple copies of the same destination
                             launchSingleTop = true
                         }
                     }
                 },
                 icon = {
+                    val iconColor = Color.White
                     when (screen) {
-                        is Screen.Home -> Icon(Icons.Default.Home, contentDescription = "Home")
-                        is Screen.Calendar -> Icon(Icons.Default.CalendarToday, contentDescription = "Calendar")
-                        is Screen.Profile -> Icon(Icons.Default.Person, contentDescription = "Profile")
+                        is Screen.Home -> Icon(Icons.Default.Home, contentDescription = "Home", tint = iconColor)
+                        is Screen.Calendar -> Icon(Icons.Default.CalendarToday, contentDescription = "Calendar", tint = iconColor)
+                        is Screen.Profile -> Icon(Icons.Default.Person, contentDescription = "Profile", tint = iconColor)
                         else -> Spacer(modifier = Modifier.size(0.dp))
                     }
                 },
-                label = { Text(screen::class.simpleName ?: "") }
+                label = { Text(screen::class.simpleName ?: "", color = Color.White) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Color.White,
+                    unselectedIconColor = Color.White.copy(alpha = 0.7f),
+                    selectedTextColor = Color.White,
+                    unselectedTextColor = Color.White.copy(alpha = 0.7f),
+                    indicatorColor = Color.White.copy(alpha = 0.2f)
+                )
             )
         }
     }

@@ -1,9 +1,18 @@
 package com.example.parkease.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.parkease.ui.components.ErrorMessage
@@ -30,22 +39,33 @@ fun SignInScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TextField(
+        Text("Sign In", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Email, "Email") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        TextField(
+        OutlinedTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Lock, "Password") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -78,8 +98,11 @@ fun SignUpScreen(
     onSignInRedirect: () -> Unit,
     viewModel: AuthViewModel = viewModel()
 ) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var usernameState by remember { mutableStateOf("") }
+    var phoneState by remember { mutableStateOf("") }
+    var emailState by remember { mutableStateOf("") }
+    var passwordState by remember { mutableStateOf("") }
+    var confirmPasswordState by remember { mutableStateOf("") }
     val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(uiState.isAuthenticated) {
@@ -92,24 +115,66 @@ fun SignUpScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Text("Create Account", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
 
+        OutlinedTextField(
+            value = usernameState,
+            onValueChange = { usernameState = it },
+            label = { Text("Username") },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Person, "Username") },
+            singleLine = true
+        )
         Spacer(modifier = Modifier.height(12.dp))
 
-        TextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth()
+        OutlinedTextField(
+            value = emailState,
+            onValueChange = { emailState = it },
+            label = { Text("Email") },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Email, "Email") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            singleLine = true
         )
+        Spacer(modifier = Modifier.height(12.dp))
 
+        OutlinedTextField(
+            value = phoneState,
+            onValueChange = { phoneState = it },
+            label = { Text("Phone Number") },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Phone, "Phone") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = passwordState,
+            onValueChange = { passwordState = it },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Lock, "Password") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = confirmPasswordState,
+            onValueChange = { confirmPasswordState = it },
+            label = { Text("Confirm Password") },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Filled.Lock, "Confirm Password") },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
+        )
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = onSignInRedirect) {
@@ -120,7 +185,12 @@ fun SignUpScreen(
 
         LoadingButton(
             text = "Sign Up",
-            onClick = { viewModel.signUp(email, password) },
+            onClick = { 
+                if (passwordState != confirmPasswordState) {
+                    return@LoadingButton
+                }
+                viewModel.signUp(emailState, passwordState, usernameState, phoneState) 
+            },
             isLoading = uiState.isLoading,
             modifier = Modifier.fillMaxWidth()
         )

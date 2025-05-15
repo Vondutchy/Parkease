@@ -3,6 +3,7 @@ package com.example.parkease.ui.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,18 +39,36 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    fun signUp(email: String, password: String) {
+    fun signUp(email: String, password: String, username: String, phone: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                auth.createUserWithEmailAndPassword(email, password).await()
-                _uiState.value = _uiState.value.copy(
-                    isAuthenticated = true,
-                    isLoading = false
-                )
+                val authResult = auth.createUserWithEmailAndPassword(email, password).await()
+                val firebaseUser = authResult.user
+
+                if (firebaseUser != null) {
+                    val db = FirebaseDatabase.getInstance("https://parkease-662e2-default-rtdb.asia-southeast1.firebasedatabase.app")
+                    val userRef = db.getReference("users").child(firebaseUser.uid)
+                    val userData = mapOf(
+                        "username" to username,
+                        "email" to email,
+                        "phone" to phone
+                    )
+                    userRef.setValue(userData).await()
+
+                    _uiState.value = _uiState.value.copy(
+                        isAuthenticated = true,
+                        isLoading = false
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        error = "Authentication successful but failed to get user details.",
+                        isLoading = false
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    error = e.message,
+                    error = e.message ?: "An unknown error occurred during sign up.",
                     isLoading = false
                 )
             }
@@ -59,5 +78,9 @@ class AuthViewModel : ViewModel() {
     fun signOut() {
         auth.signOut()
         _uiState.value = _uiState.value.copy(isAuthenticated = false)
+    }
+
+    fun setAuthenticated(isAuthenticated: Boolean) {
+        _uiState.value = _uiState.value.copy(isAuthenticated = isAuthenticated)
     }
 } 
