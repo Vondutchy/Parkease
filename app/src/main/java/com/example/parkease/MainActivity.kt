@@ -71,6 +71,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawBehind
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1061,6 +1066,42 @@ fun SlotReservationDialogFixedTime(
     )
 }
 
+@Composable
+fun DashedSlotBox(
+    slotId: String,
+    isAvailable: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (isAvailable) Color(0xFF4CAF50) else Color(0xFFD32F2F)
+    val backgroundColor = if (isAvailable) Color(0xFF4CAF50) else Color.White
+    val textColor = if (isAvailable) Color.White else Color.Black
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .drawBehind {
+                val strokeWidth = 3.dp.toPx()
+                val dashWidth = 10.dp.toPx()
+                val dashGap = 6.dp.toPx()
+                drawRoundRect(
+                    color = borderColor,
+                    size = size,
+                    style = Stroke(
+                        width = strokeWidth,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashWidth, dashGap), 0f)
+                    ),
+                    cornerRadius = CornerRadius(12.dp.toPx())
+                )
+            }
+            .background(
+                color = backgroundColor,
+                shape = RoundedCornerShape(12.dp)
+            )
+            .aspectRatio(1f)
+    ) {
+        Text(slotId, color = textColor, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ParkingScreenWithDatePreSelected(
@@ -1166,19 +1207,13 @@ fun ParkingScreenWithDatePreSelected(
                 ) {
                     items(slotMap.entries.toList()) { (slotId, status) ->
                         val isAvailable = status == "available"
-                        Button(
-                            onClick = { selectedSlot = slotId },
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAvailable) Color(0xFF4CAF50) else Color(0xFFB71C1C),
-                                disabledContainerColor = Color(0xFFB71C1C),
-                                disabledContentColor = Color.White
-                            ),
-                            enabled = isAvailable
+                                .aspectRatio(1f)
+                                .clickable(enabled = isAvailable) { selectedSlot = slotId }
                         ) {
-                            Text(slotId)
+                            DashedSlotBox(slotId = slotId, isAvailable = isAvailable, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }
@@ -1276,19 +1311,13 @@ fun ParkingScreen(
                 ) {
                     items(slotMap.entries.toList()) { (slotId, status) ->
                         val isAvailable = status == "available"
-                        Button(
-                            onClick = { selectedSlot = slotId },
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAvailable) Color(0xFF4CAF50) else Color(0xFFB71C1C),
-                                disabledContainerColor = Color(0xFFB71C1C),
-                                disabledContentColor = Color.White
-                            ),
-                            enabled = isAvailable
+                                .aspectRatio(1f)
+                                .clickable(enabled = isAvailable) { selectedSlot = slotId }
                         ) {
-                            Text(slotId)
+                            DashedSlotBox(slotId = slotId, isAvailable = isAvailable, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }
